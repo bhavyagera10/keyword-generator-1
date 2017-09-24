@@ -31,17 +31,74 @@
 # backup. 
 #
 
+import os
+import sys
+
+script_dir = os.path.dirname(os.path.realpath(__file__))
+is_bundle = getattr(sys, 'frozen', False)
+is_local = not is_bundle and os.path.exists(os.path.join(script_dir, "setup-release.py"))
+
+sys.path.insert(0, os.path.join(script_dir, 'packages'))
+sys.path.insert(0, os.path.join(script_dir, 'lib'))
+
+def check_imports():
+    # pure-python dependencies need to be imported here for pyinstaller
+    try:
+        import dns
+        import pyaes
+        import ecdsa
+        import requests
+        import six
+        import qrcode
+        import pbkdf2
+        import google.protobuf
+        import jsonrpclib
+    except ImportError as e:
+        sys.exit("Error: %s. Try 'sudo pip install <module-name>'"%e.message)
+    # the following imports are for pyinstaller
+    from google.protobuf import descriptor
+    from google.protobuf import message
+    from google.protobuf import reflection
+    from google.protobuf import descriptor_pb2
+    from jsonrpclib import SimpleJSONRPCServer
+    # check that we have the correct version of ecdsa
+    try:
+        from ecdsa.ecdsa import curve_secp256k1, generator_secp256k1
+    except Exception:
+        sys.exit("cannot import ecdsa.curve_secp256k1. You probably need to upgrade ecdsa.\nTry: sudo pip install --upgrade ecdsa")
+    # make sure that certificates are here
+    assert os.path.exists(requests.utils.DEFAULT_CA_BUNDLE_PATH)
+
+
+check_imports()
+
+# load local module as electrum
+import imp
+imp.load_module('electrum', *imp.find_module('lib'))
+imp.load_module('electrum_gui', *imp.find_module('gui'))
+
+
+from electrum import bitcoin, network
+from electrum import SimpleConfig, Network
+from electrum.wallet import Wallet, Imported_Wallet
+from electrum.storage import WalletStorage
+from electrum.util import print_msg, print_stderr, json_encode, json_decode
+from electrum.util import set_verbosity, InvalidPassword, check_www_dir
+from electrum.commands import get_parser, known_commands, Commands, config_variables
+from electrum import daemon
+from electrum import keystore
+from electrum.mnemonic import Mnemonic
+
+import version
+from bitcoin import is_old_seed, is_new_seed
+
 import hashlib
 import base64
 import re
 import hmac
-from mnemonic import Mnemonic
-import sys
-import version
-from bitcoin import is_old_seed, is_new_seed
 
 import ecdsa
-import aes
+import pyaes
 
 numargs = len(sys.argv)
 cmdargs = str(sys.argv)
@@ -71,6 +128,9 @@ print "words supplied: " + words
 # We will add a number to this list of words that was supplied and 
 # we will keep incrementing it until the criteria is satisfied.
 #
+
+mnemo = Mnemonic('en')
+
 nonce = 0
 while True:
     # Add the nonce if non zero
@@ -89,7 +149,8 @@ while True:
     # Get back the mnemonic based on the words of dictionary
     # Check if fits criteria, if so stop, otherwise keep incrementing
     # the nounce
-    mwords = Mnemonic().mnemonic_encode(seed2)
+    #    mwords = Mnemonic().mnemonic_encode(seed2)
+    mwords = mnemo.mnemonic_encode(seed2)
     if is_new_seed(mwords, version.SEED_PREFIX):
 	break
     nonce += 1
